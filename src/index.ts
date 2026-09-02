@@ -2,6 +2,7 @@ import { partsInTz, cronMatches, describeCron } from './cron';
 import { interpret } from './nlp';
 import { sendMessage, type TelegramUpdate } from './telegram';
 import { CHAT_HTML, LOGIN_HTML, authCookie, hashToken, isAuthed } from './web';
+import { checkOpenRouter } from './watchers/openrouter';
 
 export interface Env {
   DB: D1Database;
@@ -13,6 +14,8 @@ export interface Env {
   ALLOWED_CHAT_IDS?: string;
   /** 웹 채팅 UI 로그인 비밀번호 */
   WEB_PASSWORD?: string;
+  /** OpenRouter 신규 모델을 감시할 제작사 (콤마 구분). 비우면 감시 안 함 */
+  WATCH_PROVIDERS?: string;
 }
 
 interface Reminder {
@@ -38,6 +41,7 @@ const HELP = `자비스 알람봇
 
 명령어
   /list        등록된 알람 보기
+  /check       새 AI 모델 지금 확인
   /del 3       삭제
   /off 3       잠시 끄기
   /on 3        다시 켜기
@@ -60,6 +64,21 @@ async function handleCommand(text: string, chatId: string, env: Env): Promise<st
 
     case '/id':
       return `이 대화의 chat_id는 ${chatId} 입니다.`;
+
+    case '/check': {
+      // 신규 모델을 지금 즉시 확인 (평소엔 매시 정각 자동 실행)
+      const providers = env.WATCH_PROVIDERS?.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+      if (!providers?.length) return 'WATCH_PROVIDERS 가 설정되지 않았어요.';
+      try {
+        const r = await checkOpenRouter(env.DB, env.TELEGRAM_BOT_TOKEN, chatId, providers);
+        if (r.seeded) return `처음이라 현재 모델 목록만 저장했어요. 다음부터 새 모델이 나오면 알려드릴게요.`;
+        if (!r.newIds.length) return `새 모델 없어요. (${r.checked}개 확인함)`;
+        return `새 모델 ${r.newIds.length}개를 찾아서 알림을 보냈어요.`;
+      } catch (err) {
+        console.error('/check 실패', err);
+        return '확인 중 오류가 났어요.';
+      }
+    }
 
     case '/add': {
       const parsed = await interpret(arg, tz, new Date(), env.AI);
@@ -243,8 +262,12 @@ export default {
 
   // ───────────────────────── 크론 (매 분 실행) ─────────────────────────
 
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(dispatchDue(env));
+
+    // 신규 모델 감시는 매시 정각에만 (크론 자체는 알람 때문에 매 분 돈다)
+    const minute = new Date(event.scheduledTime).getUTCMinutes();
+    if (minute === 0) ctx.waitUntil(runWatchers(env));
   },
 };
 
@@ -295,4 +318,18 @@ async function dispatchDue(env: Env): Promise<void> {
   }
 
   if (updates.length) await env.DB.batch(updates);
+}
+
+async function runWatchers(env: Env): Promise<void> {
+  const providers = env.WATCH_PROVIDERS?.split(',').map((p) => p.trim().toLowerCase()).filter(Boolean);
+  const chatId = env.ALLOWED_CHAT_IDS?.split(',')[0]?.trim();
+  if (!providers?.length || !chatId) return;
+
+  try {
+    const r = await checkOpenRouter(env.DB, env.TELEGRAM_BOT_TOKEN, chatId, providers);
+    if (r.newIds.length) console.log(`openrouter: 신규 ${r.newIds.length}건`, r.newIds.join(', '));
+  } catch (err) {
+    // 감시 실패가 알람 발송을 방해하면 안 된다
+    console.error('openrouter 감시 실패', err);
+  }
 }

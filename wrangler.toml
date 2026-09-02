@@ -18,5 +18,7 @@ database_id = "e1f9b3d8-60d5-4f7a-9c67-29be033c92f2"
 [vars]
 # 시크릿이 아닌 일반 설정값
 DEFAULT_TZ = "Asia/Seoul"
+# OpenRouter 신규 모델을 감시할 제작사 (매시 정각 확인)
+WATCH_PROVIDERS = "anthropic,openai,google,meta,deepseek,nvidia"
 # ALLOWED_CHAT_IDS 는 개인 식별자라 시크릿으로 관리한다:
 #   npx wrangler secret put ALLOWED_CHAT_IDS

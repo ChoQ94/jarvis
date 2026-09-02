@@ -12,3 +12,9 @@ CREATE TABLE IF NOT EXISTS reminders (
 
 -- 매 분 스캔하므로 enabled 기준 조회를 빠르게
 CREATE INDEX IF NOT EXISTS idx_reminders_enabled ON reminders(enabled);
+
+-- OpenRouter 신규 모델 감시용. '본 적 있는 모델' 목록.
+CREATE TABLE IF NOT EXISTS seen_models (
+  id         TEXT PRIMARY KEY,
+  first_seen TEXT NOT NULL DEFAULT (datetime('now'))
+);
