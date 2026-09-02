@@ -334,25 +334,53 @@ export default {
 
   // ───────────────────────── 크론 (매 분 실행) ─────────────────────────
 
-  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(dispatchDue(env));
-    ctx.waitUntil(heartbeat(env));
+  async scheduled(event: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
+    // waitUntil 로 띄우면 핸들러가 먼저 끝나면서 작업이 잘릴 수 있어 직접 await 한다.
+    // 크론은 실행 시간이 넉넉하고 여기서 하는 일은 모두 짧다.
+    const now = new Date();
+
+    // 먼저 tick 을 기록한다. 뒤 작업이 실패해도 심장박동은 남아야 한다.
+    // 매 분 쓰면 D1 쓰기 한도를 하루 1,440건 잡아먹는데, 경고 임계값이 10분이라
+    // 5분마다만 기록해도 지연을 충분히 잡는다 (쓰기 288건/일로 감소).
+    const minuteNow = now.getUTCMinutes();
+    let prevTick: number | null = null;
+    if (minuteNow % 5 === 0) {
+      try {
+        prevTick = await heartbeat(env, now);
+      } catch (err) {
+        console.error('heartbeat 실패', err);
+      }
+    }
+
+    try {
+      await dispatchDue(env, now, prevTick);
+    } catch (err) {
+      console.error('dispatchDue 실패', err);
+    }
 
     // 신규 모델 감시는 매시 정각에만 (크론 자체는 알람 때문에 매 분 돈다)
-    const minute = new Date(event.scheduledTime).getUTCMinutes();
-    if (minute === 0) ctx.waitUntil(runWatchers(env));
+    if (new Date(event.scheduledTime).getUTCMinutes() === 0) {
+      await runWatchers(env).catch((err) => console.error('watcher 실패', err));
+    }
   },
 };
 
-async function dispatchDue(env: Env): Promise<void> {
-  const now = new Date();
+/** 놓친 구간을 되짚어볼 최대 범위. 이보다 오래된 알람은 지금 울려봐야 의미가 없다. */
+const MAX_CATCHUP_MINUTES = 120;
 
+async function dispatchDue(env: Env, now: Date, prevTick: number | null): Promise<void> {
   const { results } = await env.DB.prepare('SELECT * FROM reminders WHERE enabled = 1').all<Reminder>();
   if (results.length === 0) return;
 
-  // 크론 트리거가 몇 초 밀려 분을 건너뛰는 경우에 대비해 직전 1분도 함께 확인.
-  // 중복 발송은 last_sent 로 막는다.
-  const instants = [now, new Date(now.getTime() - 60_000)];
+  // 기본은 현재 분과 직전 1분(트리거가 몇 초 밀려 분을 건너뛰는 경우 대비).
+  // 크론이 오래 멈춰 있었다면 그 구간까지 되짚어 반복 알람을 보정한다.
+  // 여러 시각이 맞아도 최신 것 하나만 보낸다 (중복 발송은 last_sent 가 막는다).
+  let lookback = 1;
+  if (prevTick) {
+    const gapMinutes = Math.floor((now.getTime() - prevTick) / 60_000);
+    lookback = Math.min(Math.max(gapMinutes, 1), MAX_CATCHUP_MINUTES);
+  }
+  const instants = Array.from({ length: lookback + 1 }, (_, k) => new Date(now.getTime() - k * 60_000));
   const updates: D1PreparedStatement[] = [];
   const failures: string[] = [];
 
@@ -419,15 +447,11 @@ async function dispatchDue(env: Env): Promise<void> {
   }
 }
 
-/** 크론이 정상 주기로 도는지 기록·확인 */
-async function heartbeat(env: Env): Promise<void> {
+/** 크론이 정상 주기로 도는지 기록·확인. 이전 실행 시각(ms)을 돌려준다. */
+async function heartbeat(env: Env, now: Date): Promise<number | null> {
   const owner = env.ALLOWED_CHAT_IDS?.split(',')[0]?.trim();
-  if (!owner) return;
-  try {
-    await recordTick(env.DB, env.TELEGRAM_BOT_TOKEN, owner, new Date());
-  } catch (err) {
-    console.error('heartbeat 실패', err);
-  }
+  if (!owner) return null;
+  return recordTick(env.DB, env.TELEGRAM_BOT_TOKEN, owner, now);
 }
 
 async function runWatchers(env: Env): Promise<void> {

@@ -82,8 +82,10 @@ main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .me{align-self:flex-end;background:var(--me);color:#fff;border-bottom-right-radius:5px}
 .bot{align-self:flex-start;background:var(--panel);border:1px solid var(--line);border-bottom-left-radius:5px}
 .tip{align-self:center;color:var(--sub);font-size:13px;text-align:center;max-width:min(90%,520px);padding:4px 0}
-.tip code{background:var(--panel);border:1px solid var(--line);padding:1px 6px;border-radius:6px;font-size:12px;
+.tip code{background:var(--panel);border:1px solid var(--line);padding:3px 8px;border-radius:7px;font-size:12px;
  display:inline-block;margin:3px 2px}
+.tip code.ex{cursor:pointer}
+.tip code.ex:hover{border-color:var(--me);color:var(--me)}
 
 /* 목록 */
 #items{padding:12px;display:flex;flex-direction:column;gap:8px}
@@ -101,7 +103,19 @@ main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .act .del:hover{border-color:var(--danger);color:var(--danger)}
 .empty{text-align:center;color:var(--sub);padding:48px 20px;font-size:14px}
 
-form{display:flex;gap:8px;padding:12px 16px calc(12px + env(safe-area-inset-bottom));
+/* 퀵 명령 칩 */
+#chips{display:flex;gap:7px;padding:11px 14px 11px;overflow-x:auto;scrollbar-width:none;
+ background:var(--panel);border-top:1px solid var(--line)}
+#chips::-webkit-scrollbar{display:none}
+.chip{flex-shrink:0;padding:9px 15px;border-radius:18px;border:1px solid var(--line);
+ background:var(--bg);color:var(--txt);font:inherit;font-size:13px;cursor:pointer;white-space:nowrap;
+ line-height:1.2}
+.chip:hover{border-color:var(--me);color:var(--me)}
+.chip.run{background:var(--me);color:#fff;border-color:var(--me);font-weight:600}
+.chip.run:hover{opacity:.88;color:#fff}
+form{border-top:none}
+
+form{display:flex;gap:8px;padding:4px 14px calc(14px + env(safe-area-inset-bottom));
  border-top:1px solid var(--line);background:var(--panel)}
 input{flex:1;padding:12px 14px;border-radius:22px;border:1px solid var(--line);background:var(--bg);
  color:var(--txt);font-size:16px;font-family:inherit;min-width:0}
@@ -119,13 +133,14 @@ form button:disabled{opacity:.5}
 <main id="paneChat">
   <div id="log">
     <div class="tip">말하듯 편하게 적어보세요
-      <div><code>내일 3시에 병원 알려줘</code><code>평일 8시 반 스탠드업</code><code>다음주 월요일 2시에 치과</code></div>
+      <div><code class="ex">내일 3시에 병원 알려줘</code><code class="ex">평일 8시 반 스탠드업</code><code class="ex">다음주 월요일 2시에 치과</code></div>
     </div>
   </div>
 </main>
 
 <main id="paneList" hidden><div id="items"></div></main>
 
+<div id="chips"></div>
 <form id="f"><input id="i" placeholder="내일 3시에 병원 알려줘" autocomplete="off" autofocus><button id="b">보내기</button></form>
 
 <script>
@@ -187,10 +202,36 @@ async function load(){
   });
 }
 
+// run:true = 누르면 바로 실행 / false = 입력창에 채워넣고 수정하게
+var CHIPS=[
+  {label:'📋 알람 목록', cmd:'/list', run:true},
+  {label:'🆕 새 모델 확인', cmd:'/check', run:true},
+  {label:'❓ 도움말', cmd:'/help', run:true},
+  {label:'매일 09:00 물 마시기', cmd:'매일 09:00 물 마시기', run:false},
+  {label:'평일 08:30 스탠드업', cmd:'평일 08:30 스탠드업', run:false},
+  {label:'내일 15:00 병원', cmd:'내일 15:00 병원', run:false},
+  {label:'🆔 내 chat_id', cmd:'/id', run:true}
+];
+CHIPS.forEach(function(c){
+  var el=document.createElement('button');
+  el.className='chip'+(c.run?' run':'');
+  el.textContent=c.label;
+  el.onclick=function(){
+    if(c.run){ send(c.cmd); }
+    else { i.value=c.cmd; i.focus(); i.setSelectionRange(c.cmd.length,c.cmd.length); }
+  };
+  document.getElementById('chips').appendChild(el);
+});
+
+// 채팅 탭 예시 문구도 클릭하면 입력창에 채워진다
+Array.prototype.forEach.call(document.querySelectorAll('.tip code.ex'),function(el){
+  el.onclick=function(){ i.value=el.textContent; i.focus(); };
+});
+
 var ALIAS={'목록':'/list','리스트':'/list','도움말':'/help','help':'/help'};
-f.onsubmit=async function(e){
-  e.preventDefault();
-  var text=i.value.trim(); if(!text)return;
+async function send(text){
+  text=(text||'').trim(); if(!text)return;
+  show('chat');  // 알람 탭에서 칩을 눌러도 결과는 채팅에서 보인다
   add(text,'me'); i.value=''; b.disabled=true;
   var pending=add('...','bot');
   try{
@@ -200,7 +241,9 @@ f.onsubmit=async function(e){
     if(reply.indexOf('등록했어요')===0)load();
   }catch(err){pending.textContent='연결에 실패했어요. 잠시 후 다시 시도해주세요.'}
   b.disabled=false; i.focus();
-};
+}
+
+f.onsubmit=function(e){ e.preventDefault(); send(i.value); };
 
 load();
 </script></body></html>`;
