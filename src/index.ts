@@ -284,7 +284,8 @@ async function dispatchDue(env: Env): Promise<void> {
       await sendMessage(env.TELEGRAM_BOT_TOKEN, r.chat_id, `⏰ ${r.message}`);
       updates.push(
         r.once_at
-          ? env.DB.prepare('UPDATE reminders SET enabled = 0, last_sent = ? WHERE id = ?').bind(dueStamp, r.id)
+          // 일회성은 보내고 나면 역할이 끝났으므로 지운다 (목록에 쌓이지 않게)
+          ? env.DB.prepare('DELETE FROM reminders WHERE id = ?').bind(r.id)
           : env.DB.prepare('UPDATE reminders SET last_sent = ? WHERE id = ?').bind(dueStamp, r.id),
       );
     } catch (err) {

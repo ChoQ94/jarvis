@@ -14,13 +14,28 @@ const { describeCron } = require('../.cli-build/cron');
 
 const TZ = 'Asia/Seoul';
 
-/** wrangler.toml 에서 내 chat_id 를 읽는다 */
+/** 내 chat_id 를 찾는다. 시크릿으로 관리하므로 .dev.vars 를 먼저 본다. */
 function myChatId() {
-  const toml = readFileSync(path.join(__dirname, '..', 'wrangler.toml'), 'utf8');
-  const m = toml.match(/^\s*ALLOWED_CHAT_IDS\s*=\s*"([^"]*)"/m);
-  const id = m && m[1].split(',')[0].trim();
+  const read = (file) => {
+    try {
+      return readFileSync(path.join(__dirname, '..', file), 'utf8');
+    } catch {
+      return '';
+    }
+  };
+  const pick = (text, re) => {
+    const m = text.match(re);
+    return m ? m[1].split(',')[0].trim() : '';
+  };
+
+  const id =
+    pick(read('.dev.vars'), /^\s*ALLOWED_CHAT_IDS\s*=\s*"?([^"\n]*)"?\s*$/m) ||
+    pick(read('wrangler.toml'), /^\s*ALLOWED_CHAT_IDS\s*=\s*"([^"]*)"/m);
+
   if (!id) {
-    console.error('wrangler.toml 에 ALLOWED_CHAT_IDS 가 없습니다. 대상 chat_id를 알 수 없어요.');
+    console.error('ALLOWED_CHAT_IDS 를 찾을 수 없습니다.');
+    console.error('.dev.vars 에 다음 줄을 추가하세요 (봇에게 /id 를 보내면 값을 알 수 있습니다):');
+    console.error('  ALLOWED_CHAT_IDS="123456789"');
     process.exit(1);
   }
   return id;
