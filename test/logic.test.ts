@@ -76,6 +76,19 @@ for (const [input, expectedCron, expectedMsg] of nl) {
      `"${input}"`, r.ok ? `→ cron="${r.cron}" once=${r.onceAt} msg="${r.message}"` : `→ ${r.error}`);
 }
 
+console.log('\n[5-1b] 반복 여부');
+const rep: [string, boolean, string][] = [
+  ['오후 3시에 병원',            false, '병원'],   // 날짜 없음 → 매일 반복
+  ['오후 3시에 병원 반복알림해줘', false, '병원'],   // '반복' 은 꼬리말로 제거
+  ['내일 오후 3시에 병원',       true,  '병원'],   // 날짜 있음 → 1회
+];
+for (const [input, expectOnce, expectMsg] of rep) {
+  const r = parseSchedule(input, TZ, now);
+  ok(r.ok && !!r.onceAt === expectOnce && r.message === expectMsg,
+     `"${input}" → ${expectOnce ? '1회' : '반복'}`,
+     r.ok ? `once=${r.onceAt} cron="${r.cron}" msg="${r.message}"` : r.error);
+}
+
 console.log('\n[5-2] 주/요일 계산 (기준: 2026-09-01 화)');
 // 2026-09-01(화) 기준 → 이번주월=08-31, 이번주금=09-04, 다음주월=09-07, 다음주금=09-11
 const wk: [string, string][] = [
