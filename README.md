@@ -3,9 +3,14 @@
 텔레그램으로 알람과 알림을 받는 개인용 봇.
 
 1. **리마인더** — 내가 정한 시각에 알람 (말하듯 등록)
-2. **감시** — OpenRouter에 새 AI 모델이 올라오면 알림 (별도 봇으로 발송)
+2. **감시** — OpenRouter에 새 AI 모델이 올라오면 알림
 
 서버를 24시간 띄워둘 필요 없이 **Cloudflare Workers 무료 플랜**에서 돌아갑니다.
+
+| 봇 | 받는 것 | 확인 주기 |
+|---|---|---|
+| 리마인더 봇 | 알람, 명령어 응답 | 매 분 |
+| 알림 봇 | 새 AI 모델 | 매시 정각 |
 
 배포 주소: `https://jarvis.choq.workers.dev`
 
@@ -147,6 +152,84 @@ AI는 규칙이 실패한 문장에만 호출됩니다.
 
 ---
 
+## 설치
+
+### 1. 텔레그램 봇 만들기
+
+`@BotFather` 에서 `/newbot` 으로 **봇 두 개**를 만듭니다.
+
+| 봇 | 역할 |
+|---|---|
+| 리마인더 봇 | 알람 발송 + 명령어 처리 |
+| 알림 봇 (선택) | 새 AI 모델 알림 전용 |
+
+만든 뒤 **두 봇 모두에게 아무 메시지나 한 번 보내세요.**
+텔레그램은 사용자가 먼저 말을 걸어야 봇의 발송을 허용합니다.
+
+> 토큰은 비밀번호와 같습니다. 코드나 깃에 절대 넣지 마세요.
+
+### 2. 로컬 설정
+
+```bash
+npm install
+cp .dev.vars.example .dev.vars
+```
+
+`.dev.vars` 를 열어 값을 채웁니다. 각 항목 설명은 파일 안에 있습니다.
+웹훅 시크릿은 이렇게 만들면 됩니다:
+
+```bash
+openssl rand -hex 32
+```
+
+`chat_id` 는 아직 몰라도 됩니다 — 배포 후 봇에게 `/id` 를 보내면 알려줍니다.
+
+### 3. 데이터베이스 만들기
+
+```bash
+npx wrangler d1 create jarvis-db
+```
+
+출력된 `database_id` 를 `wrangler.toml` 의 `database_id` 자리에 붙여넣고:
+
+```bash
+npm run db:init        # reminders + seen_models 테이블 생성
+```
+
+### 4. 시크릿 등록 후 배포
+
+```bash
+npx wrangler secret put TELEGRAM_BOT_TOKEN
+npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
+npx wrangler secret put ALLOWED_CHAT_IDS
+npx wrangler secret put WEB_PASSWORD        # 웹 UI 쓸 때만
+npx wrangler secret put WATCHER_BOT_TOKEN   # 알림 봇 쓸 때만
+npm run deploy
+```
+
+`wrangler secret put` 은 값을 프롬프트로 받기 때문에 **셸 히스토리에 남지 않습니다.**
+
+### 5. 웹훅 연결
+
+배포 후 나온 주소로 텔레그램과 연결합니다.
+
+```bash
+npm run webhook:set -- https://jarvis.<계정>.workers.dev
+```
+
+웹훅은 **리마인더 봇에만** 겁니다. 알림 봇은 발송 전용이라 필요 없습니다.
+
+> 새로 만든 `*.workers.dev` 주소는 SSL 인증서 발급에 수십 분에서 한 시간까지
+> 걸릴 수 있습니다. 그동안에도 알람 발송은 정상 동작하며, 등록만 CLI 로 하면 됩니다.
+
+### 6. 모델 감시 준비 (선택)
+
+`wrangler.toml` 의 `WATCH_PROVIDERS` 에 감시할 제작사를 적고 배포한 뒤,
+봇에게 `/check` 를 한 번 보냅니다. **최초 실행은 알림 없이 현재 목록만 저장**하므로
+수백 개 알림이 쏟아지지 않습니다. 이후부터 새로 올라오는 모델만 알려줍니다.
+
+---
+
 ## 사용법
 
 ### 말하듯 적으면 됩니다
@@ -251,6 +334,13 @@ npm run dev        # 로컬 실행 (로컬 D1)
 npm run deploy     # 배포
 ```
 
+Workers AI 나 원격 D1 을 쓰는 로직(모델 감시 등)을 로컬에서 확인하려면
+`--remote` 로 띄워야 합니다.
+
+```bash
+npx wrangler dev --remote
+```
+
 로컬에서 크론을 수동으로 트리거하려면:
 
 ```bash
@@ -320,6 +410,17 @@ npm run webhook:info
 **배포 직후 SSL 에러** — 새로 만든 `*.workers.dev` 서브도메인은 인증서 발급에
 수십 분에서 한 시간까지 걸릴 수 있습니다. 그동안에도 **알람 발송은 정상 동작**합니다
 (아웃바운드는 인증서와 무관). 등록만 CLI로 하시면 됩니다.
+
+**모델 알림이 안 옴** — 알림 봇에게 먼저 말을 걸었는지 확인하세요.
+텔레그램은 사용자가 대화를 시작하지 않은 봇의 발송을 차단합니다.
+`/check` 를 보내면 즉시 확인할 수 있고, 결과 메시지로 원인을 알 수 있습니다.
+
+**알림이 쏟아짐** — `seen_models` 가 비어 있으면 최초 실행으로 간주해 알림 없이
+저장만 합니다. 이 테이블을 지우면 다시 시딩 모드가 됩니다.
+
+```bash
+npx wrangler d1 execute jarvis-db --remote --command "SELECT COUNT(*) FROM seen_models"
+```
 
 **알람이 안 왔음** — DB에서 직접 확인합니다.
 
