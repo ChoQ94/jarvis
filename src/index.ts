@@ -16,6 +16,8 @@ export interface Env {
   WEB_PASSWORD?: string;
   /** OpenRouter 신규 모델을 감시할 제작사 (콤마 구분). 비우면 감시 안 함 */
   WATCH_PROVIDERS?: string;
+  /** 모델 알림 전용 봇 토큰. 없으면 리마인더 봇으로 보낸다 */
+  WATCHER_BOT_TOKEN?: string;
 }
 
 interface Reminder {
@@ -70,7 +72,8 @@ async function handleCommand(text: string, chatId: string, env: Env): Promise<st
       const providers = env.WATCH_PROVIDERS?.split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
       if (!providers?.length) return 'WATCH_PROVIDERS 가 설정되지 않았어요.';
       try {
-        const r = await checkOpenRouter(env.DB, env.TELEGRAM_BOT_TOKEN, chatId, providers);
+        const token = env.WATCHER_BOT_TOKEN || env.TELEGRAM_BOT_TOKEN;
+        const r = await checkOpenRouter(env.DB, token, chatId, providers);
         if (r.seeded) return `처음이라 현재 모델 목록만 저장했어요. 다음부터 새 모델이 나오면 알려드릴게요.`;
         if (!r.newIds.length) return `새 모델 없어요. (${r.checked}개 확인함)`;
         return `새 모델 ${r.newIds.length}개를 찾아서 알림을 보냈어요.`;
@@ -326,7 +329,9 @@ async function runWatchers(env: Env): Promise<void> {
   if (!providers?.length || !chatId) return;
 
   try {
-    const r = await checkOpenRouter(env.DB, env.TELEGRAM_BOT_TOKEN, chatId, providers);
+    // 모델 알림은 별도 봇으로 (설정 없으면 리마인더 봇으로 폴백)
+    const token = env.WATCHER_BOT_TOKEN || env.TELEGRAM_BOT_TOKEN;
+    const r = await checkOpenRouter(env.DB, token, chatId, providers);
     if (r.newIds.length) console.log(`openrouter: 신규 ${r.newIds.length}건`, r.newIds.join(', '));
   } catch (err) {
     // 감시 실패가 알람 발송을 방해하면 안 된다
