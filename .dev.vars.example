@@ -1,0 +1,14 @@
+# 복사해서 .dev.vars 로 만들고 실제 값을 채우세요.
+# .dev.vars 는 .gitignore 에 있으며 절대 커밋하면 안 됩니다.
+
+# @BotFather 에서 /newbot 으로 발급받은 토큰
+TELEGRAM_BOT_TOKEN="123456:AA-여기에-토큰"
+
+# 아무 랜덤 문자열 (openssl rand -hex 32). 텔레그램 웹훅 검증용
+TELEGRAM_WEBHOOK_SECRET="랜덤문자열"
+
+# 웹 채팅 UI 로그인 비밀번호
+WEB_PASSWORD="원하는-비밀번호"
+
+# 봇을 사용할 수 있는 텔레그램 chat_id (봇에게 /id 를 보내면 알 수 있음)
+ALLOWED_CHAT_IDS="123456789"

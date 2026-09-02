@@ -1,0 +1,25 @@
+{
+  "name": "jarvis",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Telegram reminder bot on Cloudflare Workers",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:init": "wrangler d1 execute jarvis-db --remote --file=./schema.sql",
+    "db:init:local": "wrangler d1 execute jarvis-db --local --file=./schema.sql",
+    "webhook:set": "node scripts/webhook.mjs set",
+    "webhook:info": "node scripts/webhook.mjs info",
+    "chatid": "node scripts/chatid.mjs",
+    "typecheck": "tsc --noEmit",
+    "webhook:delete": "node scripts/webhook.mjs delete",
+    "test": "tsc src/cron.ts src/parse.ts test/logic.test.ts --outDir .test-build --module commonjs --target es2022 --strict --skipLibCheck --types node && node .test-build/test/logic.test.js",
+    "cli": "tsc src/cron.ts src/parse.ts --outDir .cli-build --module commonjs --target es2022 --strict --skipLibCheck --types node && node scripts/cli.cjs"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250109.0",
+    "@types/node": "^26.4.0",
+    "typescript": "^5.7.3",
+    "wrangler": "^4.86.0"
+  }
+}

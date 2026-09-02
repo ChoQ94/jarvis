@@ -1,0 +1,22 @@
+name = "jarvis"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# 매 분 실행 → 지금 보낼 알람이 있는지 확인
+[triggers]
+crons = ["* * * * *"]
+
+# 자연어 해석 fallback
+[ai]
+binding = "AI"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "jarvis-db"
+database_id = "e1f9b3d8-60d5-4f7a-9c67-29be033c92f2"
+
+[vars]
+# 시크릿이 아닌 일반 설정값
+DEFAULT_TZ = "Asia/Seoul"
+# ALLOWED_CHAT_IDS 는 개인 식별자라 시크릿으로 관리한다:
+#   npx wrangler secret put ALLOWED_CHAT_IDS
