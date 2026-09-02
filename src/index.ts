@@ -1,8 +1,9 @@
 import { partsInTz, cronMatches, describeCron } from './cron';
 import { interpret } from './nlp';
-import { sendMessage, type TelegramUpdate } from './telegram';
+import { answerCallback, editMessage, sendMessage, type InlineButton, type TelegramUpdate } from './telegram';
 import { CHAT_HTML, LOGIN_HTML, authCookie, hashToken, isAuthed } from './web';
 import { checkOpenRouter } from './watchers/openrouter';
+import { alert, recordTick } from './health';
 
 export interface Env {
   DB: D1Database;
@@ -149,6 +150,60 @@ async function handleCommand(text: string, chatId: string, env: Env): Promise<st
   }
 }
 
+// ───────────────────────── 알림 버튼 처리 ─────────────────────────
+
+async function handleCallback(
+  update: NonNullable<TelegramUpdate['callback_query']>,
+  env: Env,
+): Promise<void> {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  const data = update.data ?? '';
+  const msg = update.message;
+  const chatId = String(msg?.chat.id ?? update.from.id);
+  const tz = env.DEFAULT_TZ || 'Asia/Seoul';
+
+  // 원본 알림에서 내용을 꺼낸다 ("⏰ 약 먹기" → "약 먹기").
+  // 덕분에 콜백 데이터(64바이트 제한)에 메시지를 담지 않아도 된다.
+  const body = (msg?.text ?? '').replace(/^⏰\s*/, '').split('\n')[0].trim();
+
+  if (data === 'done') {
+    await answerCallback(token, update.id, '완료!');
+    if (msg) await editMessage(token, chatId, msg.message_id, `✅ ${body}`);
+    return;
+  }
+
+  if (data.startsWith('snooze:')) {
+    const minutes = Number(data.split(':')[1]);
+    if (!Number.isFinite(minutes) || !body) {
+      await answerCallback(token, update.id, '다시 알릴 내용을 못 찾았어요');
+      return;
+    }
+    const at = partsInTz(new Date(Date.now() + minutes * 60_000), tz).stamp;
+    await env.DB.prepare(
+      `INSERT INTO reminders (chat_id, message, cron, timezone, once_at) VALUES (?, ?, '', ?, ?)`,
+    )
+      .bind(chatId, body, tz, at)
+      .run();
+
+    const label = minutes >= 60 ? `${minutes / 60}시간` : `${minutes}분`;
+    await answerCallback(token, update.id, `${label} 뒤에 다시 알릴게요`);
+    if (msg) await editMessage(token, chatId, msg.message_id, `😴 ${body}\n   → ${at.slice(11)} 에 다시`);
+    return;
+  }
+
+  if (data.startsWith('off:')) {
+    const id = Number(data.split(':')[1]);
+    await env.DB.prepare('UPDATE reminders SET enabled = 0 WHERE id = ? AND chat_id = ?')
+      .bind(id, chatId)
+      .run();
+    await answerCallback(token, update.id, '이 알람을 껐어요');
+    if (msg) await editMessage(token, chatId, msg.message_id, `🔕 ${body}\n   (알람을 껐어요. /on ${id} 로 다시 켤 수 있어요)`);
+    return;
+  }
+
+  await answerCallback(token, update.id);
+}
+
 // ─────────────────────────── 웹훅 (fetch) ───────────────────────────
 
 export default {
@@ -233,6 +288,20 @@ export default {
     }
 
     const update = (await request.json()) as TelegramUpdate;
+
+    // 알림에 달린 버튼을 눌렀을 때
+    if (update.callback_query) {
+      const from = String(update.callback_query.from.id);
+      const allowedIds = env.ALLOWED_CHAT_IDS?.split(',').map((x) => x.trim()).filter(Boolean);
+      if (allowedIds?.length && !allowedIds.includes(from)) return new Response('ok');
+      try {
+        await handleCallback(update.callback_query, env);
+      } catch (err) {
+        console.error('callback 처리 실패', err);
+      }
+      return new Response('ok');
+    }
+
     const message = update.message;
     if (!message?.text) return new Response('ok'); // 텍스트가 아닌 업데이트는 무시
 
@@ -267,6 +336,7 @@ export default {
 
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(dispatchDue(env));
+    ctx.waitUntil(heartbeat(env));
 
     // 신규 모델 감시는 매시 정각에만 (크론 자체는 알람 때문에 매 분 돈다)
     const minute = new Date(event.scheduledTime).getUTCMinutes();
@@ -284,6 +354,7 @@ async function dispatchDue(env: Env): Promise<void> {
   // 중복 발송은 last_sent 로 막는다.
   const instants = [now, new Date(now.getTime() - 60_000)];
   const updates: D1PreparedStatement[] = [];
+  const failures: string[] = [];
 
   for (const r of results) {
     const tz = r.timezone || 'Asia/Seoul';
@@ -307,7 +378,17 @@ async function dispatchDue(env: Env): Promise<void> {
     if (!dueStamp || dueStamp === r.last_sent) continue;
 
     try {
-      await sendMessage(env.TELEGRAM_BOT_TOKEN, r.chat_id, `⏰ ${r.message}`);
+      // 반복 알람만 '끄기' 를 붙인다 (일회성은 발송과 동시에 사라지므로 끌 대상이 없다)
+      const buttons: InlineButton[][] = [
+        [
+          { text: '✅ 완료', callback_data: 'done' },
+          { text: '😴 10분', callback_data: 'snooze:10' },
+          { text: '😴 1시간', callback_data: 'snooze:60' },
+        ],
+      ];
+      if (!r.once_at) buttons.push([{ text: '🔕 이 알람 끄기', callback_data: `off:${r.id}` }]);
+
+      await sendMessage(env.TELEGRAM_BOT_TOKEN, r.chat_id, `⏰ ${r.message}`, buttons);
       updates.push(
         r.once_at
           // 일회성은 보내고 나면 역할이 끝났으므로 지운다 (목록에 쌓이지 않게)
@@ -317,10 +398,36 @@ async function dispatchDue(env: Env): Promise<void> {
     } catch (err) {
       // 한 건이 실패해도 나머지는 계속 보낸다
       console.error(`reminder ${r.id} 발송 실패`, err);
+      failures.push(r.message);
     }
   }
 
   if (updates.length) await env.DB.batch(updates);
+
+  // 발송이 실패했다면 조용히 넘기지 않고 알린다
+  if (failures.length) {
+    const owner = env.ALLOWED_CHAT_IDS?.split(',')[0]?.trim();
+    if (owner) {
+      await alert(
+        env.DB,
+        env.TELEGRAM_BOT_TOKEN,
+        owner,
+        'send-failed',
+        `알람 ${failures.length}건을 보내지 못했어요.\n\n${failures.map((m) => `• ${m}`).join('\n')}`,
+      );
+    }
+  }
+}
+
+/** 크론이 정상 주기로 도는지 기록·확인 */
+async function heartbeat(env: Env): Promise<void> {
+  const owner = env.ALLOWED_CHAT_IDS?.split(',')[0]?.trim();
+  if (!owner) return;
+  try {
+    await recordTick(env.DB, env.TELEGRAM_BOT_TOKEN, owner, new Date());
+  } catch (err) {
+    console.error('heartbeat 실패', err);
+  }
 }
 
 async function runWatchers(env: Env): Promise<void> {
@@ -336,5 +443,12 @@ async function runWatchers(env: Env): Promise<void> {
   } catch (err) {
     // 감시 실패가 알람 발송을 방해하면 안 된다
     console.error('openrouter 감시 실패', err);
+    await alert(
+      env.DB,
+      env.TELEGRAM_BOT_TOKEN,
+      chatId,
+      'watcher-failed',
+      `OpenRouter 확인에 실패했어요.\n${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }

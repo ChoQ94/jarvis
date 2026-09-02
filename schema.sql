@@ -18,3 +18,9 @@ CREATE TABLE IF NOT EXISTS seen_models (
   id         TEXT PRIMARY KEY,
   first_seen TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- 자기 모니터링용 상태 저장 (마지막 크론 실행 시각, 마지막 경고 발송 시각 등)
+CREATE TABLE IF NOT EXISTS system_state (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);

@@ -20,7 +20,7 @@ if (action === 'set') {
   const out = await api('setWebhook', {
     url: `${base.replace(/\/$/, '')}/webhook`,
     secret_token: secret,
-    allowed_updates: ['message'],
+    allowed_updates: ['message', 'callback_query'],
   });
   console.log(out.ok ? `웹훅 등록 완료 → ${base}/webhook` : `실패: ${out.description}`);
 } else if (action === 'delete') {
