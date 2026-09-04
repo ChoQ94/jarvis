@@ -235,6 +235,37 @@ export default {
       });
     }
 
+    // 시스템 상태 (웹 UI 표시등용)
+    if (url.pathname === '/api/status' && request.method === 'GET') {
+      if (!(await isAuthed(request, env.WEB_PASSWORD))) {
+        return Response.json({ error: 'unauthorized' }, { status: 401 });
+      }
+      const tz = env.DEFAULT_TZ || 'Asia/Seoul';
+      const owner = env.ALLOWED_CHAT_IDS?.split(',')[0]?.trim() ?? '';
+
+      const tickRow = await env.DB.prepare("SELECT value FROM system_state WHERE key = 'last_tick'")
+        .first<{ value: string }>();
+      const counts = await env.DB.prepare(
+        'SELECT (SELECT COUNT(*) FROM reminders WHERE chat_id = ? AND enabled = 1) a, (SELECT COUNT(*) FROM seen_models) m',
+      )
+        .bind(owner)
+        .first<{ a: number; m: number }>();
+
+      const lastTick = Number(tickRow?.value ?? 0);
+      // 하트비트는 5분마다 찍힌다. 12분을 넘으면 크론이 밀린 것으로 본다.
+      const ageMin = lastTick ? Math.floor((Date.now() - lastTick) / 60_000) : null;
+
+      return Response.json({
+        healthy: ageMin !== null && ageMin < 12,
+        ageMin,
+        lastTick: lastTick ? partsInTz(new Date(lastTick), tz).stamp.replace('T', ' ') : null,
+        now: partsInTz(new Date(), tz).stamp.replace('T', ' '),
+        reminders: counts?.a ?? 0,
+        watched: counts?.m ?? 0,
+        watchProviders: env.WATCH_PROVIDERS?.split(',').map((x) => x.trim()).filter(Boolean) ?? [],
+      });
+    }
+
     // 알람 목록 (웹 UI 렌더링용)
     if (url.pathname === '/api/reminders' && request.method === 'GET') {
       if (!(await isAuthed(request, env.WEB_PASSWORD))) {

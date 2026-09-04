@@ -128,6 +128,7 @@ form button:disabled{opacity:.5}
   <span class="brand">⏰ 자비스</span>
   <button class="tab" id="tabChat" aria-selected="true">채팅</button>
   <button class="tab" id="tabList" aria-selected="false">알람 <span class="count" id="cnt"></span></button>
+  <small id="st" title="상태 확인 중"><span class="dot" id="dot"></span><span id="stx">확인 중</span></small>
 </header>
 
 <main id="paneChat">
@@ -244,6 +245,32 @@ async function send(text){
 }
 
 f.onsubmit=function(e){ e.preventDefault(); send(i.value); };
+
+var dot=document.getElementById('dot'),stx=document.getElementById('stx'),st=document.getElementById('st');
+
+async function status(){
+  try{
+    var r=await fetch('/api/status');
+    if(r.status===401){location.href='/';return}
+    var d=await r.json();
+    dot.className='dot '+(d.healthy?'ok':'bad');
+    if(d.ageMin===null){ stx.textContent='대기 중'; }
+    else { stx.textContent=d.healthy ? '정상' : (d.ageMin+'분째 멈춤'); }
+    var lines=[
+      '마지막 확인: '+(d.lastTick||'-')+(d.ageMin!==null?' ('+d.ageMin+'분 전)':''),
+      '서버 시각: '+d.now,
+      '켜진 알람: '+d.reminders+'개',
+      '감시 중인 모델: '+d.watched+'개',
+      '감시 제작사: '+(d.watchProviders.join(', ')||'없음')
+    ];
+    st.title=lines.join('\n');
+  }catch(e){
+    dot.className='dot'; stx.textContent='연결 끊김'; st.title='상태를 가져오지 못했어요';
+  }
+}
+status();
+setInterval(status,60000);            // 1분마다 갱신
+document.addEventListener('visibilitychange',function(){ if(!document.hidden)status() });
 
 load();
 </script></body></html>`;
