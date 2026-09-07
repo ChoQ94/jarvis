@@ -364,6 +364,7 @@ scripts/
   cli.cjs      터미널용 알람 관리 (src/parse.ts 재사용)
   chatid.mjs   내 chat_id 조회
   webhook.mjs  웹훅 등록/조회/삭제
+  check-ui.mjs 웹 UI 인라인 스크립트 문법 검사
 test/
   logic.test.ts  크론·파싱 로직 테스트 51개
 ```
@@ -376,7 +377,8 @@ test/
 ## 개발
 
 ```bash
-npm test           # 로직 테스트 51개
+npm test           # 로직 테스트 51개 + 웹 UI 스크립트 문법 검사
+npm run check:ui   # 웹 UI 만 따로 검사
 npm run typecheck  # 타입 검사
 npm run dev        # 로컬 실행 (로컬 D1)
 npm run deploy     # 배포
@@ -435,6 +437,27 @@ curl "http://localhost:8799/cdn-cgi/handler/scheduled"
 **한계** — Worker 자체가 아예 안 돌면 이 코드도 안 돌아 알릴 수 없습니다.
 부분 실패와 지연을 잡는 것이 목적입니다. 완전 정지까지 감지하려면
 외부에서 `/health` 를 주기적으로 찔러보는 감시가 따로 필요합니다.
+
+## 웹 UI 를 고칠 때 주의할 점
+
+`src/web.ts` 의 HTML 은 **TypeScript 템플릿 리터럴** 안에 있습니다.
+인라인 스크립트에서 `\n` 을 쓰면 빌드 시 **진짜 줄바꿈으로 평가되어**
+문자열 리터럴이 끊기고, 브라우저에서 `SyntaxError` 로 스크립트 전체가 죽습니다.
+
+```js
+join('\n')    // ✗ 빌드 후 문자열 안에 개행이 들어가 깨진다
+join('\\n')   // ✓ 백슬래시를 이스케이프해야 \n 문자로 남는다
+```
+
+소스만 봐서는 멀쩡해 보이므로 **평가된 결과를 검사**해야 합니다.
+
+```bash
+npm run check:ui
+```
+
+`npm test` 에 포함되어 있어 커밋 전에 걸립니다.
+같은 이유로 HTML 응답에는 `Cache-Control: no-store` 를 넣어,
+배포 후 브라우저가 예전 화면을 붙들지 않게 했습니다.
 
 ## 설계 노트
 

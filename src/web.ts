@@ -263,7 +263,7 @@ async function status(){
       '감시 중인 모델: '+d.watched+'개',
       '감시 제작사: '+(d.watchProviders.join(', ')||'없음')
     ];
-    st.title=lines.join('\n');
+    st.title=lines.join('\\n');
   }catch(e){
     dot.className='dot'; stx.textContent='연결 끊김'; st.title='상태를 가져오지 못했어요';
   }

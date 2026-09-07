@@ -13,8 +13,9 @@
     "chatid": "node scripts/chatid.mjs",
     "typecheck": "tsc --noEmit",
     "webhook:delete": "node scripts/webhook.mjs delete",
-    "test": "tsc src/cron.ts src/parse.ts test/logic.test.ts --outDir .test-build --module commonjs --target es2022 --strict --skipLibCheck --types node && node .test-build/test/logic.test.js",
-    "cli": "tsc src/cron.ts src/parse.ts --outDir .cli-build --module commonjs --target es2022 --strict --skipLibCheck --types node && node scripts/cli.cjs"
+    "test": "tsc src/cron.ts src/parse.ts test/logic.test.ts --outDir .test-build --module commonjs --target es2022 --strict --skipLibCheck --types node && node .test-build/test/logic.test.js && node scripts/check-ui.mjs",
+    "cli": "tsc src/cron.ts src/parse.ts --outDir .cli-build --module commonjs --target es2022 --strict --skipLibCheck --types node && node scripts/cli.cjs",
+    "check:ui": "node scripts/check-ui.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250109.0",

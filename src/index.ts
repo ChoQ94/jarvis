@@ -215,8 +215,16 @@ export default {
     }
 
     // ── 웹 채팅 UI ──────────────────────────────────────────────
+    // no-store: 배포가 잦아 브라우저가 예전 화면을 붙들고 있으면
+    // 서버 API 와 형태가 어긋나 아무 반응이 없는 것처럼 보인다.
     const html = (body: string, status = 200) =>
-      new Response(body, { status, headers: { 'content-type': 'text/html; charset=utf-8' } });
+      new Response(body, {
+        status,
+        headers: {
+          'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'no-store, must-revalidate',
+        },
+      });
 
     if (url.pathname === '/' && request.method === 'GET') {
       if (!env.WEB_PASSWORD) return html('<p>WEB_PASSWORD 시크릿이 설정되지 않았습니다.</p>', 503);
