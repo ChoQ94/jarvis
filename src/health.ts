@@ -13,9 +13,18 @@ import { sendMessage } from './telegram';
 const ALERT_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6시간
 /**
  * 크론이 이만큼 안 돌았으면 밀린 것으로 본다.
- * 하트비트를 5분마다 찍으므로 정상 간격은 5분이다. 여유를 둬 12분으로 잡는다.
+ *
+ * 하트비트는 크론이 돌 때마다, 즉 매 분 찍는다. 정상 간격은 1분이다.
+ * Cloudflare 크론은 트리거가 몇십 초에서 몇 분까지 밀리거나 아예 건너뛸 수 있으므로
+ * 그 정도 요동으로는 경고하지 않도록 10분으로 잡는다.
+ *
+ * 예전에는 D1 쓰기를 아끼려고 '실행 시각의 분이 5의 배수일 때만' 하트비트를 찍었다.
+ * 그런데 그 분은 예정 시각이 아니라 실제 실행 시각에서 읽었다. 트리거가 1분만 밀려도
+ * 5의 배수 구간을 통째로 건너뛰어, 크론이 매 분 정상으로 돌고 알람도 다 나갔는데
+ * last_tick 은 30분씩 낡아 거짓 경고가 나갔다. 지금은 매 분 찍는다.
+ * 하루 1,440건으로 D1 무료 한도(10만 건/일)의 1.5% 수준이다.
  */
-const TICK_GAP_ALERT_MS = 12 * 60 * 1000;
+export const TICK_GAP_ALERT_MS = 10 * 60 * 1000;
 
 async function get(db: D1Database, key: string): Promise<string | null> {
   const row = await db

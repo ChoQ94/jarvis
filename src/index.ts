@@ -3,7 +3,7 @@ import { interpret } from './nlp';
 import { answerCallback, editMessage, sendMessage, type InlineButton, type TelegramUpdate } from './telegram';
 import { CHAT_HTML, LOGIN_HTML, authCookie, hashToken, isAuthed } from './web';
 import { checkOpenRouter } from './watchers/openrouter';
-import { alert, recordTick } from './health';
+import { alert, recordTick, TICK_GAP_ALERT_MS } from './health';
 
 export interface Env {
   DB: D1Database;
@@ -260,11 +260,11 @@ export default {
         .first<{ a: number; m: number }>();
 
       const lastTick = Number(tickRow?.value ?? 0);
-      // 하트비트는 5분마다 찍힌다. 12분을 넘으면 크론이 밀린 것으로 본다.
+      // 하트비트는 매 분 찍힌다. 경고와 같은 임계값을 써서 표시등과 알림이 엇갈리지 않게 한다.
       const ageMin = lastTick ? Math.floor((Date.now() - lastTick) / 60_000) : null;
 
       return Response.json({
-        healthy: ageMin !== null && ageMin < 12,
+        healthy: ageMin !== null && ageMin * 60_000 < TICK_GAP_ALERT_MS,
         ageMin,
         lastTick: lastTick ? partsInTz(new Date(lastTick), tz).stamp.replace('T', ' ') : null,
         now: partsInTz(new Date(), tz).stamp.replace('T', ' '),
@@ -379,16 +379,13 @@ export default {
     const now = new Date();
 
     // 먼저 tick 을 기록한다. 뒤 작업이 실패해도 심장박동은 남아야 한다.
-    // 매 분 쓰면 D1 쓰기 한도를 하루 1,440건 잡아먹는데, 경고 임계값이 10분이라
-    // 5분마다만 기록해도 지연을 충분히 잡는다 (쓰기 288건/일로 감소).
-    const minuteNow = now.getUTCMinutes();
+    // 크론이 도는 매 분마다 기록한다. 특정 분에만 기록하면 트리거 지연으로 그 분을
+    // 건너뛰어 거짓 경고가 난다 (health.ts 의 TICK_GAP_ALERT_MS 주석 참고).
     let prevTick: number | null = null;
-    if (minuteNow % 5 === 0) {
-      try {
-        prevTick = await heartbeat(env, now);
-      } catch (err) {
-        console.error('heartbeat 실패', err);
-      }
+    try {
+      prevTick = await heartbeat(env, now);
+    } catch (err) {
+      console.error('heartbeat 실패', err);
     }
 
     try {
